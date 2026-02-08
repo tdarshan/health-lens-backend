@@ -2,32 +2,48 @@ const express = require('express');
 const router = express.Router();
 const { register, login, logout, getMe, updateProfile, updatePassword } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
-const { body } = require('express-validator');
+const {
+    handleValidationErrors,
+    registerValidation,
+    loginValidation,
+    updatePasswordValidation,
+    updateProfileValidation
+} = require('../middleware/validation');
 
-// Validation middleware
-const registerValidation = [
-    body('name').trim().notEmpty().withMessage('Name is required'),
-    body('email').isEmail().withMessage('Please provide a valid email'),
-    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
-];
-
-const loginValidation = [
-    body('email').isEmail().withMessage('Please provide a valid email'),
-    body('password').exists().withMessage('Password is required')
-];
+// Add JSON parser for auth routes
+router.use(express.json());
 
 // Public routes
-router.post('/register', registerValidation, register);
-router.post('/login', loginValidation, login);
+router.post('/register',
+    registerValidation(),
+    handleValidationErrors,
+    register
+);
+
+router.post('/login',
+    loginValidation(),
+    handleValidationErrors,
+    login
+);
 
 // Protected routes
 router.get('/me', protect, getMe);
-router.put('/updateprofile', protect, updateProfile);
-router.put('/updatepassword', protect, [
-    body('currentPassword').notEmpty().withMessage('Current password is required'),
-    body('newPassword').isLength({ min: 6 }).withMessage('New password must be at least 6 characters')
-], updatePassword);
-router.get('/logout', protect, logout);
+
+router.put('/updateprofile',
+    protect,
+    updateProfileValidation(),
+    handleValidationErrors,
+    updateProfile
+);
+
+router.put('/updatepassword',
+    protect,
+    updatePasswordValidation(),
+    handleValidationErrors,
+    updatePassword
+);
+
+router.post('/logout', protect, logout);
 
 module.exports = router;
 

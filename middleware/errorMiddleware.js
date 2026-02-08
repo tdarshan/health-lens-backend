@@ -1,3 +1,5 @@
+const logger = require('../utils/logger');
+
 // Custom error class for API errors
 class ErrorResponse extends Error {
     constructor(message, statusCode) {
@@ -15,19 +17,17 @@ const errorHandler = (err, req, res, next) => {
     let error = { ...err };
     error.message = err.message;
 
-    // Log error for debugging
-    console.error('Error:', err);
+    logger.error(`${req.method} ${req.path}`, error.message);
 
     // Mongoose bad ObjectId
     if (err.name === 'CastError') {
-        const message = 'Resource not found';
-        error = new ErrorResponse(message, 404);
+        error = new ErrorResponse('Resource not found', 404);
     }
 
     // Mongoose duplicate key
     if (err.code === 11000) {
         const field = Object.keys(err.keyValue)[0];
-        const message = `Duplicate field value entered for: ${field}`;
+        const message = `${field} already exists`;
         error = new ErrorResponse(message, 400);
     }
 
@@ -39,19 +39,21 @@ const errorHandler = (err, req, res, next) => {
 
     // JWT errors
     if (err.name === 'JsonWebTokenError') {
-        const message = 'Invalid token';
-        error = new ErrorResponse(message, 401);
+        error = new ErrorResponse('Invalid token', 401);
     }
 
     if (err.name === 'TokenExpiredError') {
-        const message = 'Token expired';
-        error = new ErrorResponse(message, 401);
+        error = new ErrorResponse('Token expired', 401);
     }
 
-    res.status(error.statusCode || 500).json({
+    const statusCode = error.statusCode || 500;
+    const response = {
+        statusCode,
         success: false,
-        error: error.message || 'Server Error'
-    });
+        message: error.message || 'Server Error'
+    };
+
+    res.status(statusCode).json(response);
 };
 
 module.exports = { ErrorResponse, errorHandler };
