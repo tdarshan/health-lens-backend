@@ -1,6 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const { register, login, logout, getMe, updateProfile, updatePassword } = require('../controllers/authController');
+const {
+    register,
+    login,
+    logout,
+    getMe,
+    updateProfile,
+    updatePassword,
+    refreshToken
+} = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
 const {
     handleValidationErrors,
@@ -13,7 +21,8 @@ const {
 // Add JSON parser for auth routes
 router.use(express.json());
 
-// Public routes
+// ─── Public Routes ────────────────────────────────────────────────────────────
+
 router.post('/register',
     registerValidation(),
     handleValidationErrors,
@@ -26,7 +35,11 @@ router.post('/login',
     login
 );
 
-// Protected routes
+// No auth needed — client sends refresh token in body
+router.post('/refresh', refreshToken);
+
+// ─── Protected Routes ─────────────────────────────────────────────────────────
+
 router.get('/me', protect, getMe);
 
 router.put('/updateprofile',
@@ -46,4 +59,3 @@ router.put('/updatepassword',
 router.post('/logout', protect, logout);
 
 module.exports = router;
-

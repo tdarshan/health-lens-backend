@@ -9,8 +9,11 @@ module.exports = {
 
     // JWT
     JWT_SECRET: process.env.JWT_SECRET,
-    JWT_EXPIRE: process.env.JWT_EXPIRE || '7d',
+    JWT_EXPIRE: process.env.JWT_EXPIRE || '1d',
     JWT_COOKIE_EXPIRE: process.env.JWT_COOKIE_EXPIRE || 7,
+
+    JWT_SECRET: process.env.JWT_SECRET,  // ← add this
+    JWT_EXPIRE: process.env.JWT_EXPIRE || '7d', // ← add this
 
     // AI
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
@@ -18,7 +21,7 @@ module.exports = {
 
     // File Upload
     MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
-    ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp'],
+    ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'image/heic', 'image/heif', 'image/avif', 'image/*'],
 
     // Rate Limiting
     RATE_LIMIT_WINDOW: 15 * 60 * 1000, // 15 minutes
