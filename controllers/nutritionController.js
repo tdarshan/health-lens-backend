@@ -6,7 +6,7 @@ const { ErrorResponse } = require("../middleware/errorMiddleware");
 const config = require("../config/config");
 const logger = require("../utils/logger");
 
-// Multer Configuration
+// ─── Multer Configuration ────────────────────────────────────────────────────
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.MAX_FILE_SIZE },
@@ -19,13 +19,16 @@ const upload = multer({
   },
 });
 
-// Initialize Gemini
+// ─── Gemini Setup (module-level — initialized ONCE, not per request) ─────────
 const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
 
 const nutritionSchema = {
   type: SchemaType.OBJECT,
   properties: {
-    dish: { type: SchemaType.STRING, description: "Detailed name of the food" },
+    dish: {
+      type: SchemaType.STRING,
+      description: "Detailed name of the food",
+    },
     calories: {
       type: SchemaType.NUMBER,
       description: "Total calories for the visible portion",
@@ -42,6 +45,17 @@ const nutritionSchema = {
   required: ["dish", "calories", "protein", "carbs", "fat", "portion_estimate"],
 };
 
+// ✅ Moved outside analyzeFood — re-using the same model instance on every call
+const model = genAI.getGenerativeModel({
+  model: config.GEMINI_MODEL,
+  generationConfig: {
+    responseMimeType: "application/json",
+    responseSchema: nutritionSchema,
+    temperature: 0.1,
+  },
+});
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 const extractJSON = (text) => {
   const codeBlockMatch = text.match(/```json?\s*([\s\S]*?)\s*```/);
   if (codeBlockMatch) text = codeBlockMatch[1];
@@ -50,31 +64,34 @@ const extractJSON = (text) => {
   return text;
 };
 
+const isNonFood = (nutrition) =>
+  nutrition.calories === 0 ||
+  nutrition.dish.toLowerCase().includes("no food") ||
+  nutrition.dish.toLowerCase().includes("non-food");
+
+// ─── Controllers ─────────────────────────────────────────────────────────────
+
 // @desc    Analyze food image and save nutrition entry
+// @route   POST /api/nutrition/analyze
+// @access  Private
 exports.analyzeFood = async (req, res, next) => {
-    if (!req.file) {
-        return next(new ErrorResponse('No image provided.', 400));
-    }
+  if (!req.file) {
+    return next(new ErrorResponse("No image provided.", 400));
+  }
 
-    try {
-        const resizedBuffer = await sharp(req.file.buffer)
-            .resize(1024) 
-            .jpeg({ quality: 80 })
-            .toBuffer();
+  try {
+    // ✅ Compress image first — smaller payload = faster Gemini response
+    //    Also store the compressed version in Mongo (not the raw upload)
+    const resizedBuffer = await sharp(req.file.buffer)
+      .resize(1024)
+      .jpeg({ quality: 80 })
+      .toBuffer();
 
-        const model = genAI.getGenerativeModel({ 
-            model: config.GEMINI_MODEL,
-            generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: nutritionSchema,
-                temperature: 0.1
-            }
-        });
+    const userServings = req.body.servings
+      ? `User specified ${req.body.servings} serving(s).`
+      : "Assume single standard serving.";
 
-        const userServings = req.body.servings ? `User specified ${req.body.servings} serving(s).` : "Assume single standard serving.";
-        
-        // Updated Prompt with strict "No Food" instructions
-        const prompt = `Act as a clinical dietitian. 
+    const prompt = `Act as a clinical dietitian. 
         FIRST: Determine if the image contains edible food. 
         IF NO FOOD IS VISIBLE: Return dish as "Non-food item", calories as 0, and describe what you see in portion_estimate.
         IF FOOD IS VISIBLE: 
@@ -84,56 +101,62 @@ exports.analyzeFood = async (req, res, next) => {
         4. Summation: Provide final macro/calorie count.
         Return ONLY a JSON object.`;
 
-        const result = await model.generateContent([
-            prompt,
-            { inlineData: { data: resizedBuffer.toString('base64'), mimeType: 'image/jpeg' } }
-        ]);
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          data: resizedBuffer.toString("base64"),
+          mimeType: "image/jpeg",
+        },
+      },
+    ]);
 
-        const responseText = result.response.text();
-        let nutrition = JSON.parse(extractJSON(responseText));
+    const responseText = result.response.text();
+    const nutrition = JSON.parse(extractJSON(responseText));
 
-        // --- VALIDATION: DO NOT SAVE IF NOT FOOD ---
-        if (nutrition.calories === 0 || nutrition.dish.toLowerCase().includes("no food") || nutrition.dish.toLowerCase().includes("non-food")) {
-            return res.status(422).json({
-                statusCode: 422,
-                success: false,
-                message: "No food detected in the image. Entry not saved.",
-                detected: nutrition.dish
-            });
-        }
-
-        // Save only if food is valid
-        const nutritionEntry = await Nutrition.create({
-            user: req.user._id,
-            dish: nutrition.dish,
-            calories: nutrition.calories,
-            protein: nutrition.protein,
-            carbs: nutrition.carbs,
-            fat: nutrition.fat,
-            portion_estimate: nutrition.portion_estimate,
-            image: {
-                data: req.file.buffer,
-                contentType: req.file.mimetype
-            }
-        });
-
-        res.status(201).json({ 
-            statusCode: 201, 
-            success: true, 
-            message: 'Nutrition analysis saved',
-            data: { id: nutritionEntry._id, ...nutrition }
-        });
-
-    } catch (error) {
-        logger.error('Analysis error', error.message);
-        next(error);
+    // Reject non-food images before touching the DB
+    if (isNonFood(nutrition)) {
+      return res.status(422).json({
+        statusCode: 422,
+        success: false,
+        message: "No food detected in the image. Entry not saved.",
+        detected: nutrition.dish,
+      });
     }
+
+    // ✅ Store resizedBuffer (compressed) instead of req.file.buffer (raw)
+    //    This can be 5–10x smaller, making the Mongo write significantly faster
+    const nutritionEntry = await Nutrition.create({
+      user: req.user._id,
+      dish: nutrition.dish,
+      calories: nutrition.calories,
+      protein: nutrition.protein,
+      carbs: nutrition.carbs,
+      fat: nutrition.fat,
+      portion_estimate: nutrition.portion_estimate,
+      image: {
+        data: resizedBuffer,
+        contentType: "image/jpeg",
+      },
+    });
+
+    res.status(201).json({
+      statusCode: 201,
+      success: true,
+      message: "Nutrition analysis saved",
+      data: { id: nutritionEntry._id, ...nutrition },
+    });
+  } catch (error) {
+    logger.error("Analysis error", error.message);
+    next(error);
+  }
 };
 
-// @desc    Get all nutrition history with images
+// @desc    Get all nutrition history (no images — kept lightweight)
+// @route   GET /api/nutrition/history
+// @access  Private
 exports.getHistory = async (req, res, next) => {
   try {
-    // Use .select('-image') to exclude the heavy buffer from the list view
     const history = await Nutrition.find({ user: req.user._id })
       .select("-image")
       .sort({ createdAt: -1 });
@@ -149,7 +172,7 @@ exports.getHistory = async (req, res, next) => {
   }
 };
 
-// @desc    Get image for a nutrition entry
+// @desc    Get image for a specific nutrition entry
 // @route   GET /api/nutrition/:id/image
 // @access  Private
 exports.getImage = async (req, res, next) => {
@@ -160,7 +183,6 @@ exports.getImage = async (req, res, next) => {
       return next(new ErrorResponse("Nutrition entry not found", 404));
     }
 
-    // Verify user owns this nutrition entry
     if (nutrition.user.toString() !== req.user._id.toString()) {
       return next(
         new ErrorResponse("Not authorized to access this resource", 403),
