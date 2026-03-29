@@ -208,4 +208,33 @@ exports.getImage = async (req, res, next) => {
   }
 };
 
+// @desc    Delete a nutrition entry
+// @route   DELETE /api/nutrition/:id
+// @access  Private
+exports.deleteNutrition = async (req, res, next) => {
+  try {
+    const nutrition = await Nutrition.findById(req.params.id);
+
+    if (!nutrition) {
+      return next(new ErrorResponse("Nutrition entry not found", 404));
+    }
+
+    if (nutrition.user.toString() !== req.user._id.toString()) {
+      return next(
+        new ErrorResponse("Not authorized to delete this resource", 403),
+      );
+    }
+
+    await Nutrition.findByIdAndDelete(req.params.id);
+
+    res.status(200).json({
+      statusCode: 200,
+      success: true,
+      message: "Nutrition entry deleted successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.upload = upload;

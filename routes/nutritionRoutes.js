@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { analyzeFood, getHistory, getImage, upload } = require('../controllers/nutritionController');
+const { analyzeFood, getHistory, getImage, deleteNutrition, upload } = require('../controllers/nutritionController');
 const { protect } = require('../middleware/auth');
 
 // File upload route with protection - NO JSON parser before multer
@@ -11,6 +11,9 @@ router.use(express.json());
 
 // Get image for a nutrition entry by ID
 router.get('/:id/image', protect, getImage);
+
+// Delete a nutrition entry by ID
+router.delete('/:id/delete', protect, deleteNutrition);
 
 // Get user's nutrition history with images
 router.get('/history', protect, getHistory);
