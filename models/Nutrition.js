@@ -6,6 +6,7 @@ const NutritionSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     },
+    title: { type: String, required: true },
     dish: { type: String, required: true },
     calories: { type: Number, required: true },
     protein: { type: Number, required: true },

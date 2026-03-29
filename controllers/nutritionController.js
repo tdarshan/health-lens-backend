@@ -25,6 +25,10 @@ const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
 const nutritionSchema = {
   type: SchemaType.OBJECT,
   properties: {
+    title: {
+      type: SchemaType.STRING,
+      description: "A concise title for the food item",
+    },
     dish: {
       type: SchemaType.STRING,
       description: "Detailed name of the food",
@@ -42,7 +46,7 @@ const nutritionSchema = {
         "Explanation of perceived volume (e.g. 10-inch pizza, 2 cups of rice)",
     },
   },
-  required: ["dish", "calories", "protein", "carbs", "fat", "portion_estimate"],
+  required: ["title", "dish", "calories", "protein", "carbs", "fat", "portion_estimate"],
 };
 
 // ✅ Moved outside analyzeFood — re-using the same model instance on every call
@@ -67,7 +71,9 @@ const extractJSON = (text) => {
 const isNonFood = (nutrition) =>
   nutrition.calories === 0 ||
   nutrition.dish.toLowerCase().includes("no food") ||
-  nutrition.dish.toLowerCase().includes("non-food");
+  nutrition.dish.toLowerCase().includes("non-food") ||
+  nutrition.title.toLowerCase().includes("no food") ||
+  nutrition.title.toLowerCase().includes("non-food");
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 
@@ -93,12 +99,13 @@ exports.analyzeFood = async (req, res, next) => {
 
     const prompt = `Act as a clinical dietitian. 
         FIRST: Determine if the image contains edible food. 
-        IF NO FOOD IS VISIBLE: Return dish as "Non-food item", calories as 0, and describe what you see in portion_estimate.
+        IF NO FOOD IS VISIBLE: Return title as "Non-food item", dish as "Non-food item", calories as 0, and describe what you see in portion_estimate.
         IF FOOD IS VISIBLE: 
         1. **Deconstruct**: List visible ingredients and estimate weight in grams.
         2. **Spatial Scaling**: Use surroundings to determine portion size. 
         3. ${userServings}
         4. Summation: Provide final macro/calorie count.
+        5. Provide a concise title for the food item.
         Return ONLY a JSON object.`;
 
     const result = await model.generateContent([
@@ -128,6 +135,7 @@ exports.analyzeFood = async (req, res, next) => {
     //    This can be 5–10x smaller, making the Mongo write significantly faster
     const nutritionEntry = await Nutrition.create({
       user: req.user._id,
+      title: nutrition.title,
       dish: nutrition.dish,
       calories: nutrition.calories,
       protein: nutrition.protein,

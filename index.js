@@ -21,7 +21,7 @@ const nutritionRoutes = require('./routes/nutritionRoutes');
 app.use('/api/auth', authRoutes);
 app.use('/api/nutrition', nutritionRoutes);
 
-app.get('/health', (req, res) => res.json({ statusCode: 200, success: true, status: 'healthy' }));
+app.get('/health', (req, res) => res.json({ statusCode: 200, success: true, status: 'healthy!' }));
 
 app.use(errorHandler);
 
